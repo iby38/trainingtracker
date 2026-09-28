@@ -351,9 +351,9 @@ const A={
   pkOpen:el=>{const rid=PK.mode==='routine'?PK.rid:null;closeSheet();push({v:'ex',id:el.dataset.id,tab:'sets',rid})},
   setUnit:el=>{S.settings.unit=el.dataset.u;commit()},
   exportData:async()=>{
-    const txt=JSON.stringify(S),name=`liftlog-backup-${dkey(Date.now())}.json`;
+    const txt=JSON.stringify(S),name=`trainingtracker-backup-${dkey(Date.now())}.json`;
     try{const file=new File([txt],name,{type:'application/json'});
-      if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Liftlog backup'});return}
+      if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Training Tracker backup'});return}
     }catch(e){if(e&&e.name==='AbortError') return}
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();
     setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);
@@ -382,7 +382,7 @@ const C={
         if(!Array.isArray(d.exercises)||!Array.isArray(d.sets)) throw new Error('bad');
         if(!await confirmBox('Replace everything in the app with this backup?','Import',false)) return;
         replaceData(d);resetNav();tab='home';render('push');toast('Backup imported');
-      }catch(e){toast('That file isn\'t a Liftlog backup')}
+      }catch(e){toast('That file isn\'t a Training Tracker backup')}
       el.value='';
     };
     rd.readAsText(f);
@@ -533,7 +533,7 @@ document.addEventListener('touchcancel',edgeEnd);
    Data lives in this browser's storage for your Netlify address, not in the files,
    so uploading a new version never touches it. On top of that: ask the browser not
    to evict it, and keep a copy of the data from before each app update. */
-const APP_VERSION=(window.LIFTLOG_CONFIG&&LIFTLOG_CONFIG.appVersion)||'2.0';
+const APP_VERSION=(window.TRAININGTRACKER_CONFIG&&TRAININGTRACKER_CONFIG.appVersion)||'2.2';
 function protectData(){
   Store.askPersistent();
   try{

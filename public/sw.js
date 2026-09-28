@@ -3,7 +3,7 @@
 // is slower (patchy gym signal) the saved copy opens instead, and the fresh version
 // keeps downloading in the background so it's ready next time. With no signal at all
 // the saved copy opens straight away. /api/ calls are never cached.
-const C = 'liftlog-2.1';
+const C = 'trainingtracker-2.2';
 const NETWORK_TIMEOUT_MS = 2000;
 // After one slow response, skip the wait for the next 10 seconds so the rest of the
 // page's files come straight from the saved copy (one 2s wait per load, not several).

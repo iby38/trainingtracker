@@ -1,5 +1,5 @@
 -- DRAFT schema for the future backend. Nothing uses this yet.
--- Apply later with:  npx wrangler d1 migrations apply liftlog --remote
+-- Apply later with:  npx wrangler d1 migrations apply trainingtracker --remote
 --
 -- Design: one generic table of records. It mirrors the app's data model exactly
 -- (exercises, sets, sessions, routines, categories), so sync is simply

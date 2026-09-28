@@ -10,8 +10,8 @@ const Sync = {
   timer: null,
   busy: false,
   status: 'off',
-  enabled() { const c = window.LIFTLOG_CONFIG || {}; return !!c.syncEnabled; },
-  url(p) { return ((window.LIFTLOG_CONFIG || {}).apiBase || '') + p; },
+  enabled() { const c = window.TRAININGTRACKER_CONFIG || {}; return !!c.syncEnabled; },
+  url(p) { return ((window.TRAININGTRACKER_CONFIG || {}).apiBase || '') + p; },
 
   /* Everything changed on this device since a point in time. */
   changesSince(since) {

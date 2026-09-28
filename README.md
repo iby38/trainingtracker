@@ -1,4 +1,4 @@
-# Liftlog
+# Training Tracker
 
 A fitness tracker web app, hosted on **Cloudflare Workers** (static assets + a small API).
 
@@ -40,8 +40,8 @@ Then open http://localhost:8787
 
 ## Backend plan (not built yet)
 
-1. **Database**: `npx wrangler d1 create liftlog`, paste the id into `wrangler.jsonc`
-   (commented block), then `npx wrangler d1 migrations apply liftlog --remote`.
+1. **Database**: `npx wrangler d1 create trainingtracker`, paste the id into `wrangler.jsonc`
+   (commented block), then `npx wrangler d1 migrations apply trainingtracker --remote`.
 2. **Accounts**: add sign-in (e.g. email magic link, or Cloudflare Access while it's just you).
 3. **Sync endpoint**: implement `POST /api/sync` in `src/index.js` using the contract
    at the top of `public/js/sync.js`: store incoming records by `updated_at`, return

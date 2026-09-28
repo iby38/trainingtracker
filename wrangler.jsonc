@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   // Must match the Worker name you choose in the Cloudflare dashboard.
-  "name": "liftlog",
+  "name": "trainingtracker",
   "main": "src/index.js",
   "compatibility_date": "2026-09-28",
   "assets": {
@@ -16,6 +16,6 @@
 
   // ---- Later, when adding the backend database (see README) ----
   // ,"d1_databases": [
-  //   { "binding": "DB", "database_name": "liftlog", "database_id": "PASTE-ID-HERE" }
+  //   { "binding": "DB", "database_name": "trainingtracker", "database_id": "PASTE-ID-HERE" }
   // ]
 }

@@ -1,5 +1,5 @@
 /**
- * Liftlog Worker.
+ * Training Tracker Worker.
  * Static files in /public are served directly by Cloudflare (free, never reaches this code).
  * Only requests to /api/* run here — this is where the backend will live.
  */
@@ -9,7 +9,7 @@ export default {
 
     // Health check — the app's Settings page uses this to show "Server: Online".
     if (url.pathname === '/api/health') {
-      return json({ ok: true, service: 'liftlog', time: Date.now() });
+      return json({ ok: true, service: 'trainingtracker', time: Date.now() });
     }
 
     // Placeholder for the future sync endpoint (see public/js/sync.js for the contract).

@@ -1,6 +1,6 @@
 {
-  "name": "Liftlog",
-  "short_name": "Liftlog",
+  "name": "Training Tracker",
+  "short_name": "Training Tracker",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
