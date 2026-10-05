@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Must match the Worker name in the Cloudflare dashboard.
+  "name": "trainingtracker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-28",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // The super admin username. Its account can only be created with the SETUP_CODE
+  // secret, which you add in the Cloudflare dashboard (never put it in this file).
+  "vars": {
+    "ADMIN_USERNAME": "iby38"
+  },
+  // The database. Create it in the Cloudflare dashboard (Storage & Databases → D1),
+  // then paste its ID below. Tables are created automatically on first use.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "trainingtracker",
+      "database_id": "3a2131a3-ad94-4836-ab8f-3aeab12cb098"
+    }
+  ],
+  "observability": { "enabled": true }
+}

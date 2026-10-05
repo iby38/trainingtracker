@@ -1,0 +1,12 @@
+{
+  "name": "trainingtracker",
+  "version": "2.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.143.0"
+  }
+}
