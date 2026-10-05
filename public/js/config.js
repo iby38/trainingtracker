@@ -1,8 +1,6 @@
-/* Training Tracker configuration.
-   When the backend is built, flip syncEnabled to true. apiBase stays '' because
-   the API is served from the same Cloudflare Worker as the app (/api/...). */
+/* Training Tracker configuration. */
 window.TRAININGTRACKER_CONFIG = {
-  appVersion: '2.2',
-  apiBase: '',
-  syncEnabled: false
+  appVersion: '3.0',
+  apiBase: '',          // the API is served by the same Cloudflare Worker (/api/...)
+  syncEverySeconds: 60  // how often an open app checks for changes from other devices / your coach
 };

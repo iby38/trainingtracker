@@ -64,6 +64,11 @@ const I={
   kettle:sv('<path d="M9 8V6a3 3 0 016 0v2"/><path d="M5 9h14l1.5 11h-17z"/>'),
   hash:sv('<path d="M5 9h15M4 15h15M10 3L8 21M16 3l-2 18"/>'),
   ruler:sv('<path d="M3 12h18M7 9v6M12 9v6M17 9v6"/>'),
+  people:sv('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.2c3 .2 5.5 2.6 5.5 5.8"/>'),
+  coach:sv('<path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/>'),
+  bell:sv('<path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 004 0"/>'),
+  play:sv('<path d="M7 4.5v15l12-7.5z"/>','fill="currentColor"'),
+  circuit:sv('<path d="M20 12a8 8 0 11-2.3-5.7"/><path d="M20 4v4h-4"/><path d="M12 8v4l2.5 2"/>'),
   tag:sv('<path d="M3 12V4a1 1 0 011-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>')
 };
 
@@ -73,19 +78,22 @@ const I={
    server can then merge changes from several devices record by record. */
 const KEY=Store.KEY;
 const SCHEMA=2;
-const COLLS=['exercises','sets','sessions','routines','categories'];
+const COLLS=['exercises','sets','sessions','routines','categories','coachNotes'];
+/* CTX.client is set while a coach is viewing/editing one of their clients. */
+const CTX={client:null};
 function defaults(){
-  return {v:1,schema:SCHEMA,deviceId:uid(),tombstones:[],settingsUpdatedAt:0,lastSyncAt:0,
+  return {v:1,schema:SCHEMA,deviceId:uid(),tombstones:[],settingsUpdatedAt:0,lastRev:0,lastPushAt:0,lastSyncAt:0,coachNotes:[],
     exercises:[],sets:[],sessions:[],routines:[],
     categories:[{id:'strength',name:'Strength Training',color:'#5fd46a'},{id:'cardio',name:'Cardio',color:'#4a9cff'},{id:'combat',name:'Combat Sports',color:'#ff5b52'}],
     settings:{unit:'kg',step1:1,step2:5,gapMin:90,defaultCat:'strength',sessFilter:'all',calFilter:'all',
       graph:{range:'3m',mode:'sets',series:{reps:true,weight:true,volume:false,e1rm:false,duration:true,distance:true}}}};
 }
-let S=Store.load()||defaults();
-let memOnly=!Store.ok;
+let S=defaults(); // replaced by the signed-in account's data in loadUser()
+let memOnly=false;
 function migrate(){
   const d=defaults();
-  for(const k of ['exercises','sets','sessions','routines','categories']) if(!Array.isArray(S[k])) S[k]=d[k];
+  for(const k of COLLS) if(!Array.isArray(S[k])) S[k]=d[k];
+  if(S.lastRev==null) S.lastRev=0; if(S.lastPushAt==null) S.lastPushAt=0;
   if(!S.categories.length) S.categories=d.categories;
   if(!Array.isArray(S.tombstones)) S.tombstones=[];
   if(!S.deviceId) S.deviceId=uid();
@@ -94,7 +102,7 @@ function migrate(){
   const g=S.settings.graph||{};
   S.settings.graph=Object.assign({},d.settings.graph,g,{series:Object.assign({},d.settings.graph.series,g.series||{})});
   S.routines.forEach(r=>{r.days=r.days||[];r.exerciseIds=r.exerciseIds||[]});
-  S.exercises.forEach(e=>{e.metrics=e.metrics||{reps:true,weight:true};e.orm=e.orm||{on:false,formula:'brzycki'}});
+  S.exercises.forEach(e=>{e.metrics=e.metrics||{reps:true,weight:true};e.orm=e.orm||{on:false,formula:'brzycki'};if(e.kind==='circuit'){e.circuit=e.circuit||{minutes:10,items:[]};e.metrics={rounds:true}}});
   // give older records a sensible updatedAt so a future merge has something to compare
   for(const c of COLLS) for(const r of S[c]) if(!r.updatedAt) r.updatedAt=r.ts||r.start||r.created||1;
   // forget very old tombstones
@@ -126,7 +134,19 @@ function stampChanges(){
 takeSnap();
 /* Replace all data without treating it as edits (import, restore, erase this device). */
 function replaceData(d){S=d;migrate();takeSnap();IX=null;Store.save(S)}
-function save(){stampChanges();if(!Store.save(S)) memOnly=true;if(window.Sync) Sync.schedule()}
+/* Load the signed-in account's data from this device. */
+function loadUser(uid){Store.uid=uid;S=Store.load()||defaults();migrate();takeSnap();IX=null;memOnly=!Store.ok}
+/* Every edit ends here. Own data: save to the device, then sync to the server.
+   Coaching a client: send the change straight to the client's account instead. */
+function save(){
+  stampChanges();
+  if(CTX.client){if(window.Coach) Coach.queuePush();return}
+  if(!Store.save(S)) memOnly=true;
+  if(window.Sync) Sync.schedule();
+}
+/* Coach notes: one note per exercise / routine / session, written by the coach. */
+const noteId=(target,id)=>target+':'+id;
+const coachNote=(target,id)=>S.coachNotes.find(n=>n.id===noteId(target,id)&&n.text);
 var IX=null;
 function ix(){
   if(IX) return IX;
@@ -145,7 +165,10 @@ const catById=id=>S.categories.find(c=>c.id===id)||{id:'',name:'Uncategorised',c
 const exSets=id=>ix()[id]||[];
 const lastDone=id=>{const a=exSets(id);return a.length?a[a.length-1].ts:0};
 const U=()=>S.settings.unit;
-const M=ex=>(ex&&ex.metrics)||{reps:true,weight:true};
+const M=ex=>ex&&ex.kind==='circuit'?{rounds:true}:((ex&&ex.metrics)||{reps:true,weight:true});
+const isCircuit=ex=>!!ex&&ex.kind==='circuit';
+/* Circuit score: full rounds, with extra reps as a tie-breaker. */
+const roundsScore=s=>(s.rounds||0)+(s.extra||0)/1000;
 const onDay=dow=>S.routines.filter(r=>(r.days||[]).includes(dow));
 const daysTxt=days=>WEEK.filter(d=>(days||[]).includes(d)).map(d=>DOW[d]).join(', ');
 function sortByLast(list){
@@ -172,6 +195,7 @@ function e1rm(s,ex){
   return isFinite(v)&&v>0?v:0;
 }
 function vol(s,ex){const m=M(ex);
+  if(m.rounds) return roundsScore(s);
   if(m.reps&&m.weight) return (s.reps||0)*(s.weight||0);
   if(m.reps) return s.reps||0; if(m.weight) return s.weight||0;
   if(m.duration) return s.duration||0; return s.distance||0;
@@ -179,6 +203,7 @@ function vol(s,ex){const m=M(ex);
 const kgVol=(s,ex)=>{const m=M(ex);return m.reps&&m.weight?(s.reps||0)*(s.weight||0):0};
 function vals(s,ex){
   const m=M(ex);let h='';
+  if(m.rounds) return `<span class="v rnd">${s.rounds||0}<small> rounds</small></span>${s.extra?`<span class="v rnd">+${s.extra}<small> reps</small></span>`:''}${s.capMin?`<span class="v cap">${s.capMin}<small> min</small></span>`:''}`;
   if(m.duration) h+=`<span class="v dur">${fmtDur(s.duration)}</span>`;
   if(m.distance) h+=`<span class="v dist">${num(s.distance||0)}<small> km</small></span>`;
   if(m.reps) h+=`<span class="v reps">${s.reps||0}<small> rep</small></span>`;
@@ -187,6 +212,7 @@ function vals(s,ex){
 }
 function txtSet(s,ex){
   const m=M(ex),p=[];
+  if(m.rounds) return `${s.rounds||0} rounds${s.extra?` +${s.extra}`:''}${s.capMin?` in ${s.capMin} min`:''}`;
   if(m.duration) p.push(fmtDur(s.duration));
   if(m.distance) p.push(num(s.distance||0)+' km');
   if(m.reps) p.push((s.reps||0)+' rep');
@@ -195,7 +221,7 @@ function txtSet(s,ex){
 }
 function bestSet(a,ex){
   const m=M(ex);
-  const f=m.weight?s=>(s.weight||0)*1000+(s.reps||0):m.reps?s=>s.reps||0:m.duration?s=>s.duration||0:s=>s.distance||0;
+  const f=m.rounds?roundsScore:m.weight?s=>(s.weight||0)*1000+(s.reps||0):m.reps?s=>s.reps||0:m.duration?s=>s.duration||0:s=>s.distance||0;
   return a.reduce((b,s)=>!b||f(s)>f(b)?s:b,null);
 }
 function prInfo(ex){
@@ -206,6 +232,7 @@ function prInfo(ex){
     if(s.label==='warmup') continue;
     let isPr;
     if(m.reps&&m.weight) isPr=!prev.some(p=>(p.weight||0)>=(s.weight||0)&&(p.reps||0)>=(s.reps||0));
+    else if(m.rounds) isPr=!prev.some(p=>roundsScore(p)>=roundsScore(s));
     else{const f=m.reps?'reps':m.weight?'weight':m.duration?'duration':'distance';isPr=!prev.some(p=>(p[f]||0)>=(s[f]||0))}
     if(isPr&&dkey(s.ts)!==first) prs.add(s.id);
     prev.push(s);

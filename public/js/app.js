@@ -2,7 +2,7 @@
 /* Per-tab page stacks (like iOS), plus one global history so Back always returns
    to wherever you just were — including across tabs (e.g. Home → My Workouts → Back). */
 let stacks,tab='home',lastKey='',restInt=null,OPEN=null,HIST=[],navDepth=0,ignorePop=0;
-function resetNav(){stacks={home:[{v:'home'}],workouts:[{v:'workouts'}],sessions:[{v:'sessions'}],calendar:[{v:'day',d:dkey(Date.now())}]};HIST=[]}
+function resetNav(){stacks={home:[{v:'home'}],workouts:[{v:'workouts'}],sessions:[{v:'sessions'}],calendar:[{v:'day',d:dkey(Date.now())}],coach:[{v:'coach'}]};HIST=[]}
 resetNav();
 const stack=()=>stacks[tab];
 const cur=()=>stack()[stack().length-1];
@@ -12,12 +12,20 @@ function render(mode){
   const key=tab+'|'+stack().length+'|'+v.v+'|'+(v.id||v.d||'');
   let y=main.scrollTop;
   if(mode==='push') y=0; else if(mode==='pop') y=v._y||0; else if(key!==lastKey) y=0;
+  if(!Auth.signedIn()||document.body.classList.contains('authmode')) return;
   main.dataset.v=v.v;
-  main.innerHTML=(V[v.v]||vHome)(v);
+  const bar=CTX.client?`<div class="coachbar"><div class="grow"><b>Coaching ${esc(CTX.client.username)}</b><div id="cbstat">Changes save to their account</div></div><button data-a="exitClient">Done</button></div>`:'';
+  main.classList.toggle('coaching',!!CTX.client);
+  main.innerHTML=bar+(V[v.v]||vHome)(v);
   main.scrollTop=y;lastKey=key;
   $$('.tab').forEach(t=>t.classList.toggle('on',t.dataset.t===tab));
   if(v.v==='ex'){if((v.tab||'sets')==='analyze') drawChart();else if((v.tab||'sets')==='sets') startRest(v.id)}
-  if(v.v==='settings') Sync.health().then(h=>{const el=$('#srv');if(el){el.textContent=h&&h.ok?'Online':'Offline';el.style.color=h&&h.ok?COL.green:''}});
+  if(v.v==='settings') serverHealth().then(h=>{const el=$('#srv');if(el){el.textContent=h&&h.ok?(h.db?'Online':'Online (database not connected)'):'Offline';el.style.color=h&&h.ok&&h.db?COL.green:''}});
+  if(/^coach/.test(v.v)&&!CTX.client) Coach.loadOverview();
+  if(v.v==='adminUsers'&&!ADM.users) loadAdmin('users');
+  if(v.v==='adminResets'&&!v._loaded){v._loaded=true;loadAdmin('resets')}
+  if(v.v==='notifs'&&!v._loaded){v._loaded=true;loadNotifs()}
+  updateBadges();
   if(v.v==='month'&&!v._scrolled){v._scrolled=true;const c=$('#calcur');if(c) main.scrollTop=c.offsetTop-90}
 }
 function histAdd(e){
@@ -96,11 +104,18 @@ function menu(items){
 const catPick=(active,grp)=>S.categories.map(c=>`<button class="chip ${c.id===active?'on':''}" style="--c:${c.color}" data-a="pickChip" data-grp="${grp}" data-val="${c.id}"><i class="dot" style="background:${c.color}"></i>${esc(c.name)}</button>`).join('');
 
 /* ---------- log a set ---------- */
-function openLog(exId,rid){
+function openLog(exId,rid,pre){
   const ex=exById(exId);if(!ex) return;
   const m=M(ex),a=exSets(exId),p=a[a.length-1]||{reps:8,weight:0,duration:60,distance:1};
   const s1=+S.settings.step1||1,s2=+S.settings.step2||5;
   let h=`<div class="grab"></div><div class="lg-title">${esc(ex.name)}</div>`;
+  if(m.rounds){
+    const cap=(pre&&pre.capMin)||(ex.circuit&&ex.circuit.minutes)||p.capMin||10;
+    const r0=pre&&pre.rounds!=null?pre.rounds:(p.rounds||0);
+    h+=`<div class="lg-f"><label style="color:#ff9f7a" for="lg-rounds">Full rounds completed</label><div class="stp"><button data-a="stp" data-f="lg-rounds" data-d="-1">−</button><input id="lg-rounds" type="number" inputmode="numeric" value="${r0}"><button data-a="stp" data-f="lg-rounds" data-d="1">+</button></div></div>
+    <div class="lg-f"><label for="lg-extra">Extra reps into the next round</label><div class="stp"><button data-a="stp" data-f="lg-extra" data-d="-1">−</button><input id="lg-extra" type="number" inputmode="numeric" value="${pre&&pre.extra||0}"><button data-a="stp" data-f="lg-extra" data-d="1">+</button></div></div>
+    <div class="lg-f"><label for="lg-cap">Time cap (minutes)</label><div class="stp"><input id="lg-cap" type="number" inputmode="decimal" step="any" value="${cap}"></div></div>`;
+  }
   if(m.reps) h+=`<div class="lg-f"><label class="green" for="lg-reps">Reps</label><div class="stp"><button data-a="stp" data-f="lg-reps" data-d="-1">−</button><input id="lg-reps" type="number" inputmode="numeric" value="${p.reps!=null?p.reps:''}"><button data-a="stp" data-f="lg-reps" data-d="1">+</button></div></div>`;
   if(m.weight) h+=`<div class="lg-f"><label class="orange" for="lg-w">Weight (${U()})</label><div class="stp"><button data-a="stp" data-f="lg-w" data-d="-${s2}">−${s2}</button><button data-a="stp" data-f="lg-w" data-d="-${s1}">−${s1}</button><input id="lg-w" type="number" inputmode="decimal" step="any" value="${p.weight!=null?p.weight:''}"><button data-a="stp" data-f="lg-w" data-d="${s1}">+${s1}</button><button data-a="stp" data-f="lg-w" data-d="${s2}">+${s2}</button></div></div>`;
   if(m.duration){const d=p.duration||0;h+=`<div class="lg-f"><label class="teal">Duration</label><div class="stp"><input id="lg-min" type="number" inputmode="numeric" value="${Math.floor(d/60)}"><span>min</span><input id="lg-sec" type="number" inputmode="numeric" value="${Math.round(d%60)}"><span>sec</span></div></div>`}
@@ -137,6 +152,7 @@ function drawPicker(){
   const lib=LIB.filter(n=>!mineNames.has(n.toLowerCase())&&match(n)).sort();
   const exact=mineNames.has(ql)||LIB.some(n=>n.toLowerCase()===ql);
   let h='';
+  h+=`<div class="card"><div class="row tap" data-a="newCircuit" data-name="${esc(q)}"><span class="pkic" style="color:#ff9f7a">${I.circuit}</span><div class="grow"><div>Create a circuit${q?` “${esc(q)}”`:''}</div><div class="sub">Rounds completed in a fixed time</div></div></div></div>`;
   if(q&&!exact) h+=`<div class="card"><div class="row tap green" data-a="pkNew"><span class="pkic">${I.plus}</span><span class="grow">Create “${esc(q)}”</span><span class="dim sm">or press Enter</span></div></div>`;
   if(r){
     const inR=r.exerciseIds.map(exById).filter(e=>e&&match(e.name));
@@ -208,7 +224,7 @@ function openAssign(d){
 const A={
   back:()=>goBack(),
   closeSheet:()=>closeSheet(),
-  tab:el=>{const t=el.dataset.t;closeSheet();if(t===tab){HIST=HIST.filter(e=>!(e.t==='push'&&e.tab===t));stacks[t].length=1;if(t==='calendar') stacks[t][0].d=dkey(Date.now());render('push')}else switchTab(t)},
+  tab:el=>{const t=el.dataset.t;closeSheet();if(CTX.client&&t==='coach'){Coach.exit();return}if(t===tab){HIST=HIST.filter(e=>!(e.t==='push'&&e.tab===t));stacks[t].length=1;if(t==='calendar') stacks[t][0].d=dkey(Date.now());render('push')}else switchTab(t)},
   push:el=>push({v:el.dataset.v,id:el.dataset.id}),
   toggleEdit:()=>{cur().edit=!cur().edit;render()},
   moveR:el=>{const i=S.routines.findIndex(r=>r.id===el.dataset.id),j=i+(+el.dataset.d);if(j<0||j>=S.routines.length) return;[S.routines[i],S.routines[j]]=[S.routines[j],S.routines[i]];commit()},
@@ -253,7 +269,7 @@ const A={
   exTab:el=>{cur().tab=el.dataset.t;render()},
   exMenu:el=>{const id=el.dataset.id;menu([
     {label:'Edit name and notes',fn:()=>openInfo(id)},
-    {label:'Tracked metrics',fn:()=>openProps(id)},
+    isCircuit(exById(id))?{label:'Edit circuit',fn:()=>openCircuit(id)}:{label:'Tracked metrics',fn:()=>openProps(id)},
     {label:'Add to routine',fn:()=>openAddTo(id)},
     {label:'Delete exercise',danger:1,fn:()=>A.delEx({dataset:{id}})}])},
   menuPick:el=>{const it=MENU[+el.dataset.i];closeSheet();if(it) setTimeout(it.fn,0)},
@@ -265,6 +281,7 @@ const A={
   lgSave:el=>{
     const id=el.dataset.id,ex=exById(id),m=M(ex),g=x=>{const i=$('#'+x);return i?parseFloat(i.value):NaN};
     const s={id:uid(),exerciseId:id,note:$('#lg-note').value.trim(),label:$('#lg-lbl').dataset.val||'',ts:Date.now()};
+    if(m.rounds){s.rounds=Math.max(0,Math.round(g('lg-rounds')||0));s.extra=Math.max(0,Math.round(g('lg-extra')||0));s.capMin=Math.max(0,round2(g('lg-cap')||0))}
     if(m.reps) s.reps=Math.max(0,Math.round(g('lg-reps')||0));
     if(m.weight) s.weight=Math.max(0,round2(g('lg-w')||0));
     if(m.duration) s.duration=Math.max(0,(g('lg-min')||0)*60+(g('lg-sec')||0));
@@ -358,8 +375,48 @@ const A={
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'application/json'}));a.download=name;document.body.appendChild(a);a.click();
     setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);
   },
-  demo:()=>{if(S.sets.length){toast('Demo data only loads into an empty app');return}loadDemo();IX=null;save();resetNav();tab='home';render('push');toast('Demo data loaded')},
-  wipe:async()=>{if(!await confirmBox('Erase all exercises, sets, sessions and routines? This can\'t be undone.','Erase')) return;replaceData(defaults());resetNav();tab='home';render('push');toast('All data erased from this device')}
+  demo:async()=>{if(S.sets.length){toast('Demo data only loads into an empty account');return}if(!await confirmBox('Add sample routines and 3 months of sample workouts to your account? You can delete them later with “Delete all my training data”.','Add demo',false)) return;loadDemo();IX=null;save();resetNav();tab='home';render('push');toast('Demo data loaded')},
+  wipe:async()=>{
+    if(!await confirmBox('Delete ALL your exercises, sets, sessions and routines from your account, on every device? This can\'t be undone.','Delete everything')) return;
+    if(!await confirmBox('Are you sure? Consider exporting a backup first.','Yes, delete')) return;
+    for(const c of ['exercises','sets','sessions','routines']) S[c]=[];
+    IX=null;save();resetNav();tab='home';render('push');toast('All training data deleted');
+  },
+  /* ---- accounts, sync, notifications ---- */
+  authGo:el=>showAuth(el.dataset.m,{username:($('#main [name=username]')||{}).value||''}),
+  authSignOutHard:()=>{Store.setAuth(null);Auth.state=null;showAuth('login')},
+  logout:()=>Auth.logout(),
+  changePassword:()=>{AV.forced=false;sheet(`${sheetHead('Change password','closeSheet','')}<form data-form="authChange" class="aform insheet">${fieldP('current','Current password','current-password')}${fieldP('next','New password','new-password')}${fieldP('confirm','Confirm new password','new-password')}<button class="savebtn" type="submit">${I.check}</button></form>`)},
+  syncNow:async()=>{toast('Syncing…');await Sync.run();render();toast(Sync.status==='ok'?'Up to date':Sync.error||'Offline')},
+  adminGoResets:()=>{if(tab!=='coach') switchTab('coach');push({v:'adminResets'})},
+  notifGo:el=>{const k=el.dataset.k,id=el.dataset.id;
+    if(k==='routine'&&rtById(id)) push({v:'routine',id});
+    else if(k==='exercise'&&exById(id)) push({v:'ex',id,tab:'sets'});
+    else if(k==='session'&&sesById(id)) push({v:'session',id});
+    else toast('That item is no longer there')},
+  linkRespond:async el=>{try{await API.post('/api/links/respond',{coachId:el.dataset.id,accept:!!el.dataset.ok});toast(el.dataset.ok?'Coach accepted':'Invite declined');await Auth.refreshMe();if(cur().v==='notifs') loadNotifs();render()}catch(e){toast(e.message)}},
+  linkRemove:async el=>{if(!await confirmBox(`Stop sharing your training with ${el.dataset.name}? They won't be able to see or change it.`,'Remove')) return;try{await API.post('/api/links/remove',{coachId:el.dataset.id});await Auth.refreshMe();render();toast('Coach removed')}catch(e){toast(e.message)}},
+  /* ---- coach notes ---- */
+  editCoachNote:el=>{const n=coachNote(el.dataset.t,el.dataset.id);
+    sheet(`${sheetHead('Coach note','saveCoachNote','')}<div class="dim sm mb">${esc(el.dataset.name)}</div><div class="card"><textarea id="cn-text" rows="5" placeholder="Cues, form notes, targets. Your client sees this.">${esc(n?n.text:'')}</textarea></div><div class="foot">Leave it empty to remove the note.</div><input type="hidden" id="cn-t" value="${el.dataset.t}"><input type="hidden" id="cn-id" value="${el.dataset.id}"><input type="hidden" id="cn-name" value="${esc(el.dataset.name)}">`,{mount(){setTimeout(()=>{const x=$('#cn-text');if(x) x.focus()},80)}})},
+  saveCoachNote:()=>{const target=$('#cn-t').value,targetId=$('#cn-id').value,id=noteId(target,targetId),text=$('#cn-text').value.trim();
+    let n=S.coachNotes.find(x=>x.id===id);
+    if(!n){n={id,target,targetId};S.coachNotes.push(n)}
+    Object.assign(n,{text,targetName:$('#cn-name').value,author:Auth.user().username});
+    closeSheet();commit();toast(text?'Note saved':'Note removed')},
+  /* ---- circuits ---- */
+  newCircuit:el=>{const name=el.dataset.name||'';closeSheet();openCircuit(null,name,PK.mode==='routine'?PK.rid:null)},
+  editCircuit:el=>openCircuit(el.dataset.id),
+  saveCircuit:el=>{const name=$('#ci-name').value.trim();if(!name){toast('Give the circuit a name');return}
+    const minutes=Math.max(1,round2(parseFloat($('#ci-min').value)||10)),items=$('#ci-items').value.split('\n').map(x=>x.trim()).filter(Boolean);
+    let ex=el.dataset.id&&exById(el.dataset.id);
+    if(ex){Object.assign(ex,{name,circuit:{minutes,items}});closeSheet();commit();return}
+    ex=Object.assign(makeEx(name),{kind:'circuit',circuit:{minutes,items},metrics:{rounds:true}});S.exercises.push(ex);
+    const r=el.dataset.rid&&rtById(el.dataset.rid);if(r) r.exerciseIds.push(ex.id);
+    closeSheet();IX=null;save();push({v:'ex',id:ex.id,tab:'sets',rid:el.dataset.rid||null});toast('Circuit created')},
+  timerStart:el=>CT.start(el.dataset.id),
+  tRound:()=>CT.round(1),tUndo:()=>CT.round(-1),tPause:()=>CT.pause(),tFinish:()=>CT.finish(true),
+  tClose:async()=>{if(CT.rounds&&!await confirmBox('Stop the timer without logging?','Stop')) return;CT.stop();closeSheet()}
 };
 
 /* change handlers */
@@ -380,8 +437,8 @@ const C={
       try{
         const d=JSON.parse(rd.result);
         if(!Array.isArray(d.exercises)||!Array.isArray(d.sets)) throw new Error('bad');
-        if(!await confirmBox('Replace everything in the app with this backup?','Import',false)) return;
-        replaceData(d);resetNav();tab='home';render('push');toast('Backup imported');
+        if(!await confirmBox(`Add the ${d.sets.length} sets in this backup to your account? Nothing is deleted.`,'Import',false)) return;
+        const n=mergeBackup(d);Sync.schedule(100);resetNav();tab='home';render('push');toast(`Imported ${n} items`);
       }catch(e){toast('That file isn\'t a Training Tracker backup')}
       el.value='';
     };
@@ -529,34 +586,79 @@ function edgeEnd(){
 document.addEventListener('touchend',edgeEnd);
 document.addEventListener('touchcancel',edgeEnd);
 
-/* ================= keeping data safe across updates =================
-   Data lives in this browser's storage for your Netlify address, not in the files,
-   so uploading a new version never touches it. On top of that: ask the browser not
-   to evict it, and keep a copy of the data from before each app update. */
-const APP_VERSION=(window.TRAININGTRACKER_CONFIG&&TRAININGTRACKER_CONFIG.appVersion)||'2.2';
-function protectData(){
-  Store.askPersistent();
-  try{
-    if(S.appVersion!==APP_VERSION){
-      if(S.sets.length||S.exercises.length) Store.setExtra('before-update',{savedAt:Date.now(),from:S.appVersion||'1.0',data:S});
-      S.appVersion=APP_VERSION;Store.save(S);
-    }
-  }catch(_){}
+const APP_VERSION=(window.TRAININGTRACKER_CONFIG&&TRAININGTRACKER_CONFIG.appVersion)||'3.0';
+async function serverHealth(){try{const r=await fetch('/api/health',{cache:'no-store'});return r.ok?await r.json():null}catch(e){return null}}
+async function loadNotifs(){
+  try{NOTIFS=(await API.get('/api/notifications')).notifications;if(Sync.unread){await API.post('/api/notifications/read');Sync.unread=0}}catch(e){NOTIFS=NOTIFS||[];toast(e.message)}
+  if(cur().v==='notifs'&&!$('#ov')) render();
 }
-function preUpdateCopy(){return Store.getExtra('before-update')}
-A.restorePrev=async()=>{
-  const b=preUpdateCopy();if(!b) return;
-  if(!await confirmBox(`Replace your current data with the copy saved on ${fmtDay(b.savedAt)}, before the app updated from version ${b.from}?`,'Restore',false)) return;
-  replaceData(b.data);S.appVersion=APP_VERSION;Store.save(S);resetNav();tab='home';render('push');toast('Data restored');
+
+/* Tabs depend on role: PTs and the super admin get a Coach tab. */
+function buildTabs(){
+  const tabs=[['home','Home',I.home],['workouts','Workouts',I.dumbbell],['sessions','Sessions',I.timer],['calendar','Calendar',I.cal]];
+  if(Auth.isCoach()) tabs.push(['coach','Coach',I.people]);
+  if(tab==='coach'&&!Auth.isCoach()) tab='home';
+  $('#tabbar').innerHTML=tabs.map(([t,l,ic])=>`<button class="tab ${t===tab?'on':''}" data-a="tab" data-t="${t}">${ic}<span>${l}</span>${t==='coach'?'<i class="nb" id="coachbadge" hidden></i>':''}</button>`).join('');
+  $('#tabbar').classList.toggle('five',tabs.length===5);
+  updateBadges();
+}
+function updateBadges(){
+  const b=$('#bellbadge');if(b){b.hidden=!Sync.unread;b.textContent=Sync.unread>9?'9+':Sync.unread||''}
+  const c=$('#coachbadge');if(c){const n=Auth.isAdmin()?(Auth.me.resetsOpen||0):0;c.hidden=!n;c.textContent=n}
+}
+
+/* ================= circuit timer ================= */
+const CT={
+  exId:null,total:0,left:0,endAt:0,paused:false,rounds:0,int:null,ac:null,wake:null,
+  start(exId){
+    const ex=exById(exId);if(!ex) return;
+    this.stop();this.exId=exId;this.total=Math.round(((ex.circuit&&ex.circuit.minutes)||10)*60);this.left=this.total;this.rounds=0;this.paused=false;this.endAt=Date.now()+this.total*1000;
+    try{this.ac=this.ac||new (window.AudioContext||window.webkitAudioContext)();this.ac.resume()}catch(e){}
+    try{if(navigator.wakeLock) navigator.wakeLock.request('screen').then(w=>this.wake=w).catch(()=>{})}catch(e){}
+    const items=(ex.circuit&&ex.circuit.items)||[];
+    sheet(`<div class="timer"><div class="t-top"><button class="icon-btn" data-a="tClose" aria-label="Close">${I.x}</button><div class="title">${esc(ex.name)}</div><div class="sp44"></div></div>
+      <div class="t-clock" id="tclock">${fmtDur(this.total)}</div>
+      <div class="t-rounds"><span>Rounds</span><b id="trounds">0</b></div>
+      <button class="t-big" data-a="tRound">+1 round</button>
+      <div class="t-row"><button data-a="tUndo">−1</button><button data-a="tPause" id="tpause">Pause</button><button data-a="tFinish">Finish</button></div>
+      ${items.length?`<ol class="circ-items t-items">${items.map(i=>`<li>${esc(i)}</li>`).join('')}</ol>`:''}</div>`,{full:true});
+    this.int=setInterval(()=>this.tick(),250);
+  },
+  tick(){
+    if(this.paused) return;
+    this.left=Math.max(0,(this.endAt-Date.now())/1000);
+    const el=$('#tclock');if(el){el.textContent=fmtDur(Math.ceil(this.left));el.classList.toggle('low',this.left<=10)}
+    if(this.left<=0) this.finish(false);
+  },
+  round(d){this.rounds=Math.max(0,this.rounds+d);const el=$('#trounds');if(el) el.textContent=this.rounds;if(d>0) this.beep(880,.08)},
+  pause(){
+    this.paused=!this.paused;
+    if(!this.paused) this.endAt=Date.now()+this.left*1000;
+    const b=$('#tpause');if(b) b.textContent=this.paused?'Resume':'Pause';
+  },
+  beep(f,len){try{const a=this.ac;if(!a) return;const o=a.createOscillator(),g=a.createGain();o.frequency.value=f;o.connect(g);g.connect(a.destination);g.gain.value=.25;o.start();o.stop(a.currentTime+len)}catch(e){}},
+  finish(early){
+    const exId=this.exId,rounds=this.rounds,ex=exById(exId),cap=ex&&ex.circuit?ex.circuit.minutes:null;
+    if(!early){[0,350,700].forEach(ms=>setTimeout(()=>this.beep(1200,.25),ms));try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
+    this.stop();closeSheet();
+    openLog(exId,cur().rid||null,{rounds,capMin:cap});
+    toast(early?'Timer stopped':'Time!');
+  },
+  stop(){clearInterval(this.int);this.int=null;try{this.wake&&this.wake.release()}catch(e){}this.wake=null}
 };
+function openCircuit(id,name,rid){
+  const ex=id?exById(id):null,c=ex?ex.circuit:{minutes:10,items:[]};
+  sheet(`${sheetHead(ex?'Edit circuit':'New circuit','saveCircuit',id)}
+    <div class="card"><div class="row"><input id="ci-name" class="tinput left grow big" placeholder="Name, e.g. Conditioning A" value="${esc(ex?ex.name:(name||''))}"></div>
+    <div class="row"><span class="grow">Time cap (minutes)</span><input id="ci-min" class="tinput num" type="number" inputmode="decimal" step="any" value="${c.minutes}"></div></div>
+    <div class="sect">Movements, one per line</div><div class="card"><textarea id="ci-items" rows="6" placeholder="10 Burpees&#10;15 Kettlebell swings&#10;200m Row">${esc((c.items||[]).join('\n'))}</textarea></div>
+    <div class="foot">You'll track how many full rounds (plus extra reps) you complete within the time cap. Use the built-in timer to count rounds as you go.</div>`);
+  const b=$('#ov [data-a=saveCircuit]');if(b&&rid) b.dataset.rid=rid;
+}
 
 /* ================= init ================= */
-(function init(){
-  const tabs=[['home','Home',I.home],['workouts','Workouts',I.dumbbell],['sessions','Sessions',I.timer],['calendar','Calendar',I.cal]];
-  $('#tabbar').innerHTML=tabs.map(([t,l,ic])=>`<button class="tab" data-a="tab" data-t="${t}">${ic}<span>${l}</span></button>`).join('');
-  protectData();
+document.addEventListener('DOMContentLoaded',function init(){
   try{history.replaceState({ll:0},'')}catch(_){}
-  render('push');
-  if(window.Sync) Sync.init();
+  boot();
   if('serviceWorker' in navigator&&(location.protocol==='https:'||['localhost','127.0.0.1'].includes(location.hostname))) navigator.serviceWorker.register('/sw.js').catch(()=>{});
-})();
+});

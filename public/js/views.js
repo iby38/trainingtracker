@@ -46,8 +46,16 @@ function exBlocks(sets){
 /* ================= HOME ================= */
 function vHome(){
   const now=Date.now(),d=new Date(),dow=d.getDay(),tk=dkey(now);
-  let h=topBar('',{right:`<button class="icon-btn" data-a="push" data-v="settings" aria-label="Settings">${I.gear}</button>`})+`
-  <div class="eyebrow">${DOWL[dow]} ${d.getDate()} ${MONL[d.getMonth()]}</div><h1>Overview</h1>`;
+  const own=!CTX.client;
+  let h=topBar('',{right:own?`<div class="tb-r"><button class="icon-btn bellbtn" data-a="push" data-v="notifs" aria-label="Notifications">${I.bell}<i class="nb" id="bellbadge"${Sync.unread?'':' hidden'}>${Sync.unread||''}</i></button><button class="icon-btn" data-a="push" data-v="settings" aria-label="Settings">${I.gear}</button></div>`:''})+`
+  <div class="eyebrow">${own?esc(Auth.user().username)+' · ':''}${DOWL[dow]} ${d.getDate()} ${MONL[d.getMonth()]}</div><h1>${own?'Overview':esc(CTX.client.username)}</h1>`;
+  if(own){
+    const inv=(Auth.me.coaches||[]).filter(c=>c.status==='pending');
+    if(inv.length) h+=`<div class="card pad tap banner" data-a="push" data-v="notifs"><b>${esc(inv[0].username)}</b> wants to be your coach. Tap to review.</div>`;
+    if(Auth.isAdmin()&&Auth.me.resetsOpen) h+=`<div class="card pad tap banner warn" data-a="adminGoResets"><b>${Auth.me.resetsOpen} password reset request${Auth.me.resetsOpen>1?'s':''}</b> waiting for you.</div>`;
+  }
+  const ins=computeInsights();
+  if(ins.length) h+=`<div class="sect">Insights</div><div class="card">${insightRows(ins,3)}${ins.length>3?`<div class="row tap" data-a="push" data-v="insights"><span class="grow green">See all ${ins.length}</span>${I.chev}</div>`:''}</div>`;
   if(!S.routines.length){
     h+=`<div class="card pad"><div class="big">Set up your week</div><div class="exprev">Create routines in My Workouts and assign each one to days of the week. This page will then show what's on today and what's next.</div></div>`;
   }else{
@@ -98,7 +106,7 @@ function weekStrip(){
 /* ================= WORKOUTS ================= */
 function vWorkouts(v){
   const edit=!!v.edit;
-  let h=topBar('',{right:`<div class="tb-r"><button class="icon-btn" data-a="push" data-v="settings" aria-label="Settings">${I.gear}</button><button class="txt-btn" data-a="toggleEdit">${edit?'Done':'Edit'}</button></div>`})+`<h1>My Workouts</h1>
+  let h=topBar('',{right:`<div class="tb-r">${CTX.client?'':`<button class="icon-btn" data-a="push" data-v="settings" aria-label="Settings">${I.gear}</button>`}<button class="txt-btn" data-a="toggleEdit">${edit?'Done':'Edit'}</button></div>`})+`<h1>My Workouts</h1>
   <div class="card">
     <div class="row tap green" data-a="newRoutine"><span class="ic">${I.plus}</span><span class="grow">New Routine…</span></div>
     <div class="row tap" data-a="push" data-v="exercises"><span class="ic green">${I.books}</span><span class="grow">My Exercises</span><span class="dim">${S.exercises.length}</span>${I.chev}</div>
@@ -122,6 +130,7 @@ function vRoutine(v){
   const c=catById(r.categoryId),list=sortByLast(r.exerciseIds.map(exById).filter(Boolean));
   return topBar(esc(r.name),{right:`<button class="icon-btn" data-a="editRoutine" data-id="${r.id}" aria-label="Edit routine">${I.more}</button>`})
     +(r.subtitle?`<div class="center dim mb">${esc(r.subtitle)}</div>`:'')
+    +coachNoteCard('routine',r.id,r.name)
     +`<div class="chips center"><button class="pill" style="--c:${c.color}" data-a="editRoutine" data-id="${r.id}">${esc(c.name)}</button><button class="pill" style="--c:#aeaeb2" data-a="editRoutine" data-id="${r.id}">${esc(daysTxt(r.days)||'No days set')}</button></div>`
     +(list.length?`<div class="card">${exRows(list,r.id)}</div><div class="hint">Swipe right to record a set, swipe left to remove from routine</div>`:empty('No exercises in this routine','Tap “Add or remove” below.'))
     +`<button class="searchpill" data-a="picker" data-mode="routine" data-id="${r.id}">${I.search}<span>Add or remove</span></button>`;
@@ -134,9 +143,12 @@ function vEx(v){
   const ex=exById(v.id);if(!ex) return gone();
   const tab=v.tab||'sets';
   let h=topBar(esc(ex.name),{right:`<button class="icon-btn" data-a="exMenu" data-id="${ex.id}" aria-label="Exercise options">${I.more}</button>`});
-  h+=`<div class="extabs">${TABS.map(([k,l,ic,bg])=>k===tab?`<button class="xt on" style="background:${bg}">${I[ic]}<span>${l}</span></button>`:`<button class="xt" data-a="exTab" data-t="${k}" aria-label="${l}">${I[ic]}</button>`).join('')}</div>`;
+  const tabs=isCircuit(ex)?TABS.filter(x=>x[0]!=='orm'):TABS;
+  h+=`<div class="extabs">${tabs.map(([k,l,ic,bg])=>k===tab?`<button class="xt on" style="background:${bg}">${I[ic]}<span>${l}</span></button>`:`<button class="xt" data-a="exTab" data-t="${k}" aria-label="${l}">${I[ic]}</button>`).join('')}</div>`;
   if(tab==='sets'){
+    if(isCircuit(ex)) h+=circuitCard(ex);
     if(ex.notes) h+=`<div class="exnote tap" data-a="editInfo" data-id="${ex.id}">${esc(ex.notes)}</div>`;
+    h+=coachNoteCard('exercise',ex.id,ex.name);
     h+=`<div id="rest"></div>`+tabSets(ex);
   }else if(tab==='analyze') h+=tabAnalyze(ex);
   else if(tab==='orm') h+=tabOrm(ex,v);
@@ -166,17 +178,17 @@ function chartPts(ex,g){
   let a=exSets(ex.id).filter(s=>s.label!=='warmup');
   if(g.range==='2s'){const days=[...new Set(a.map(s=>dkey(s.ts)))].slice(-2);a=a.filter(s=>days.includes(dkey(s.ts)))}
   else if(g.range!=='all'){const n={'1m':30,'3m':91,'6m':182,'1y':365}[g.range]||91;const from=startOfDay(Date.now())-n*DAY;a=a.filter(s=>s.ts>=from)}
-  const p=s=>({ts:s.ts,k:dkey(s.ts),reps:s.reps||0,weight:s.weight||0,volume:(s.reps||0)*(s.weight||0),e1rm:e1rm(s,ex),duration:s.duration||0,distance:s.distance||0,n:1});
+  const p=s=>({ts:s.ts,k:dkey(s.ts),rounds:roundsScore(s),reps:s.reps||0,weight:s.weight||0,volume:(s.reps||0)*(s.weight||0),e1rm:e1rm(s,ex),duration:s.duration||0,distance:s.distance||0,n:1});
   if(g.mode==='sets') return a.map(p);
   const out=[];
   for(const s of a){const q=p(s),L=out[out.length-1];
-    if(L&&L.k===q.k){L.reps+=q.reps;L.weight=Math.max(L.weight,q.weight);L.volume+=q.volume;L.e1rm=Math.max(L.e1rm,q.e1rm);L.duration+=q.duration;L.distance+=q.distance;L.n++}
+    if(L&&L.k===q.k){L.rounds=Math.max(L.rounds,q.rounds);L.reps+=q.reps;L.weight=Math.max(L.weight,q.weight);L.volume+=q.volume;L.e1rm=Math.max(L.e1rm,q.e1rm);L.duration+=q.duration;L.distance+=q.distance;L.n++}
     else out.push(q)}
   return out;
 }
 function tabAnalyze(ex){
   const g=S.settings.graph,m=M(ex);
-  const avail=[['reps','Reps',COL.green,m.reps],['weight','Weight',COL.orange,m.weight],['volume','Volume',COL.blue,m.reps&&m.weight],['e1rm','Est. 1RM',COL.purple,m.reps&&m.weight],['duration','Time',COL.teal,m.duration],['distance','Distance',COL.pink,m.distance]].filter(x=>x[3]);
+  const avail=[['rounds','Rounds','#ff9f7a',m.rounds],['reps','Reps',COL.green,m.reps],['weight','Weight',COL.orange,m.weight],['volume','Volume',COL.blue,m.reps&&m.weight],['e1rm','Est. 1RM',COL.purple,m.reps&&m.weight],['duration','Time',COL.teal,m.duration],['distance','Distance',COL.pink,m.distance]].filter(x=>x[3]);
   CH={pts:chartPts(ex,g),series:avail.filter(a=>g.series[a[0]]),sel:null,mode:g.mode};
   return `<div id="readout" class="readout"></div><div id="chart" class="chart"></div><div id="legend" class="legend"></div>
   <div class="seg">${RANGES.map(([k,l])=>`<button class="${g.range===k?'on':''}" data-a="gset" data-k="range" data-val="${k}">${l}</button>`).join('')}</div>
@@ -240,6 +252,10 @@ function tabOrm(ex,v){
 function tabRecords(ex){
   const a=exSets(ex.id).filter(s=>s.label!=='warmup'),m=M(ex);
   if(!a.length) return empty('No records yet','Log some sets to see your best efforts.');
+  if(isCircuit(ex)){
+    const caps={};for(const s of a){const k=s.capMin||0;if(!caps[k]||roundsScore(s)>roundsScore(caps[k])) caps[k]=s}
+    return `<div class="sect">Best rounds</div><div class="card">${Object.keys(caps).sort((x,y)=>x-y).map(k=>{const s=caps[k];return `<div class="row tap" data-a="goDay" data-d="${dkey(s.ts)}"><div class="grow"><div>${+k?k+' minutes':'Any time'}</div><div class="sub">${fmtDay(s.ts)}</div></div><b>${esc(txtSet(s,ex))}</b>${I.chev}</div>`}).join('')}</div>`;
+  }
   const maxBy=f=>{let b=null,bv=-Infinity;for(const s of a){const x=f(s);if(x>bv){bv=x;b=s}}return b};
   const rows=[];
   if(m.reps&&m.weight){
@@ -308,7 +324,8 @@ function vSession(v){
     ${s.manual?`<div class="row"><span class="grow">Duration (min)</span><input class="tinput num" type="number" inputmode="numeric" data-ch="sesDurMin" data-id="${s.id}" value="${Math.round(sesDur(s)/60)}"></div>`:''}
   </div>`;
   h+=statsCard(sets,[s]);
-  h+=`<div class="sect">Notes</div><div class="card"><textarea rows="3" data-ch="sesNotes" data-id="${s.id}" placeholder="How did it go?">${esc(s.notes||'')}</textarea></div>`;
+  h+=`<div class="sect">Notes for this session</div><div class="card"><textarea rows="3" data-ch="sesNotes" data-id="${s.id}" placeholder="e.g. cut short, low energy, slight shoulder twinge">${esc(s.notes||'')}</textarea></div>`;
+  h+=coachNoteCard('session',s.id,sesName(s)+', '+fmtDay(s.start));
   h+=exBlocks(sets);
   return h;
 }
@@ -360,10 +377,56 @@ function vMonth(){
   return h;
 }
 
+/* ================= coach notes & circuits ================= */
+function coachNoteCard(target,id,name){
+  const n=coachNote(target,id);
+  if(CTX.client) return `<div class="cnote tap ${n?'':'empty'}" data-a="editCoachNote" data-t="${target}" data-id="${id}" data-name="${esc(name)}"><div class="cnote-h">${I.coach}<span>${n?'Your coach note':'Add a coach note or cue'}</span></div>${n?`<div class="cnote-b">${esc(n.text)}</div>`:''}</div>`;
+  if(!n) return '';
+  return `<div class="cnote"><div class="cnote-h">${I.coach}<span>From ${esc(n.author||'your coach')}</span></div><div class="cnote-b">${esc(n.text)}</div></div>`;
+}
+function circuitCard(ex){
+  const c=ex.circuit||{minutes:10,items:[]};
+  return `<div class="card pad circ"><div class="rc-top"><span class="pill" style="--c:#ff9f7a">${c.minutes} min circuit</span><span class="dim sm">As many rounds as possible</span></div>
+    ${c.items.length?`<ol class="circ-items">${c.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ol>`:'<div class="dim sm">No movements listed yet.</div>'}
+    <div class="circ-btns"><button class="abtn sm" data-a="timerStart" data-id="${ex.id}">${I.play}<span>Start ${c.minutes}:00 timer</span></button><button class="txt-btn" data-a="editCircuit" data-id="${ex.id}">Edit</button></div></div>`;
+}
+
+/* ================= NOTIFICATIONS & INSIGHTS ================= */
+let NOTIFS=null;
+function vNotifs(){
+  let h=topBar('Notifications');
+  if(!NOTIFS) return h+empty('Loading…','');
+  if(!NOTIFS.length) return h+empty('Nothing yet','Plan changes from your coach and other updates appear here.');
+  const pendingIds=new Set((Auth.me.coaches||[]).filter(c=>c.status==='pending').map(c=>c.id));
+  return h+`<div class="card">${NOTIFS.map(n=>{
+    const d=n.data||{},inv=n.type==='invite'&&pendingIds.has(d.coachId);
+    const link=d.kind==='routine'?`data-a="notifGo" data-k="routine" data-id="${d.id}"`:d.kind==='exercise'?`data-a="notifGo" data-k="exercise" data-id="${d.id}"`:d.kind==='session'?`data-a="notifGo" data-k="session" data-id="${d.id}"`:n.type==='reset'?'data-a="adminGoResets"':'';
+    return `<div class="row ${n.read_at?'':'unread'} ${link?'tap':''}" ${link}><div class="grow"><div>${esc(n.text)}</div><div class="sub">${ago(n.created_at)}, ${fmtTime(n.created_at)}</div>
+      ${inv?`<div class="chips mt"><button class="chip on" style="--c:${COL.green}" data-a="linkRespond" data-id="${d.coachId}" data-ok="1">Accept</button><button class="chip" data-a="linkRespond" data-id="${d.coachId}">Decline</button></div>`:''}</div>${link?I.chev:''}</div>`}).join('')}</div>`;
+}
+function vInsights(){
+  const ins=computeInsights();
+  return topBar('Insights')+(ins.length?`<div class="card">${insightRows(ins)}</div><div class="foot">Based on your schedule, sessions, lifts and notes from the last few weeks. Your coach sees the same insights.</div>`:empty('Nothing to flag','Insights appear once you have a few weeks of training logged.'));
+}
+
 /* ================= SETTINGS ================= */
 function vSettings(){
   const st=S.settings;
+  const u=Auth.user(),coaches=Auth.me.coaches||[];
+  const syncTxt={ok:'Up to date',syncing:'Syncing…',offline:'Offline, will sync when connected',error:'Problem: '+esc(Sync.error),idle:'Waiting'}[Sync.status]||'';
+  const pend=Sync.pendingCount();
   return topBar('Settings')+`
+  <div class="sect">Account</div><div class="card">
+    <div class="row"><span class="grow">Signed in as</span><b>${esc(u.username)}</b>${u.role!=='user'?`<span class="pill" style="--c:${u.role==='admin'?COL.yellow:COL.blue}">${u.role==='admin'?'Super admin':'PT'}</span>`:''}</div>
+    <div class="row tap" data-a="changePassword"><span class="grow">Change password</span>${I.chev}</div>
+    <div class="row tap red" data-a="logout"><span class="grow">Log out</span></div>
+  </div>
+  <div class="sect">Sync</div><div class="card">
+    <div class="row"><div class="grow"><div>${syncTxt}</div><div class="sub">${Sync.lastOk?'Last synced '+ago(Sync.lastOk).toLowerCase()+', '+fmtTime(Sync.lastOk):'Not synced yet on this device'}${pend?` · ${pend} change${pend>1?'s':''} waiting to upload`:''}</div></div><button class="txt-btn sm" data-a="syncNow">Sync now</button></div>
+  </div><div class="foot">Everything is saved on this device first and works offline. It syncs to your account whenever you're online, so you can sign in on any device.</div>
+  <div class="sect">Coaching</div><div class="card">
+    ${coaches.length?coaches.map(c=>`<div class="row"><div class="grow"><div>${esc(c.username)}</div><div class="sub">${c.status==='active'?'Your coach: can see your training and update your plan':'Wants to coach you'}</div></div>${c.status==='active'?`<button class="txt-btn sm" data-a="linkRemove" data-id="${c.id}" data-name="${esc(c.username)}">Remove</button>`:`<button class="chip on" style="--c:${COL.green}" data-a="linkRespond" data-id="${c.id}" data-ok="1">Accept</button><button class="chip" data-a="linkRespond" data-id="${c.id}">Decline</button>`}</div>`).join(''):'<div class="row dim">No coach. A PT can invite you using your username.</div>'}
+  </div>`+`
   <div class="sect">Weights</div><div class="card">
     <div class="row"><span class="grow">Unit</span><div class="seg sm">${['kg','lb'].map(u=>`<button class="${st.unit===u?'on':''}" data-a="setUnit" data-u="${u}">${u}</button>`).join('')}</div></div>
     <div class="row"><span class="grow">Small step when logging</span><input class="tinput num" type="number" inputmode="decimal" step="any" data-ch="setting" data-k="step1" value="${st.step1}"></div>
@@ -379,17 +442,14 @@ function vSettings(){
   </div>
   <div class="sect">Your data</div><div class="card">
     <div class="row tap" data-a="exportData"><span class="grow">Export backup</span>${I.chev}</div>
-    <label class="row tap"><span class="grow">Import backup</span>${I.chev}<input type="file" accept=".json,application/json" data-ch="importData" hidden></label>
+    <label class="row tap"><span class="grow">Import backup (adds to your account)</span>${I.chev}<input type="file" accept=".json,application/json" data-ch="importData" hidden></label>
     ${!S.sets.length?`<div class="row tap" data-a="demo"><span class="grow">Load demo data</span>${I.chev}</div>`:''}
-    ${preUpdateCopy()?`<div class="row tap" data-a="restorePrev"><div class="grow"><div>Restore data from before last update</div><div class="sub">Saved ${fmtDay(preUpdateCopy().savedAt)}</div></div>${I.chev}</div>`:''}
-    <div class="row tap red" data-a="wipe"><span class="grow">Erase all data</span></div>
+    <div class="row tap red" data-a="wipe"><span class="grow">Delete all my training data</span></div>
   </div>
   <div class="sect">About</div><div class="card">
     <div class="row"><span class="grow">App version</span><span class="dim">${APP_VERSION}</span></div>
     <div class="row"><span class="grow">Server</span><span class="dim" id="srv">Checking…</span></div>
-    <div class="row"><span class="grow">Cloud sync</span><span class="dim">${Sync.enabled()?({ok:'Up to date',syncing:'Syncing…',error:'Can\'t reach server',off:'Waiting'}[Sync.status]):'Not set up yet'}</span></div>
-    <div class="row"><span class="grow">Device ID</span><span class="dim sm">${esc(String(S.deviceId).slice(-8))}</span></div>
   </div>
-  <div class="foot">Everything is stored on this device, in this browser. Updating the app keeps it, as long as the web address stays the same. Export a backup now and then as a spare. Version ${APP_VERSION}.${memOnly?' <b class="red">Storage isn\'t available here, so nothing will be saved.</b>':''}</div>`;
+  <div class="foot">“Delete all my training data” removes it from your account on every device. Backups are a spare copy; your account already keeps everything.${memOnly?' <b class="red">Storage isn\'t available on this device, so changes only save while online.</b>':''}</div>`;
 }
-const V={home:vHome,workouts:vWorkouts,exercises:vExercises,routine:vRoutine,ex:vEx,set:vSetEdit,sessions:vSessions,session:vSession,day:vDay,month:vMonth,settings:vSettings};
+const V={home:vHome,workouts:vWorkouts,exercises:vExercises,routine:vRoutine,ex:vEx,set:vSetEdit,sessions:vSessions,session:vSession,day:vDay,month:vMonth,settings:vSettings,notifs:vNotifs,insights:vInsights};

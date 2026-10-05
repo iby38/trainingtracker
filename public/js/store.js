@@ -1,28 +1,30 @@
-/* Storage adapter. Everything that touches the device's storage goes through here,
-   so it can be swapped (e.g. to IndexedDB) without touching the rest of the app. */
+/* Device storage. Each account's data is kept separately on the device, so two people
+   can share a phone/tablet and logging out never mixes their training. */
 const Store = {
-  KEY: 'trainingtracker.data.v1',
-  OLD_KEY: 'liftlog.data.v1', // name used by earlier test versions; data is carried over automatically
+  PREFIX: 'trainingtracker',
+  LEGACY_KEYS: ['trainingtracker.data.v1', 'liftlog.data.v1'], // data saved before accounts existed
+  uid: null,
   ok: true,
+  key() { return `${this.PREFIX}.u.${this.uid}`; },
   load() {
-    try {
-      let raw = localStorage.getItem(this.KEY);
-      if (!raw) { // first run after the rename: move any data saved under the old name
-        const old = localStorage.getItem(this.OLD_KEY);
-        if (old) {
-          raw = old; localStorage.setItem(this.KEY, old);
-          for (const x of ['before-update']) { const v = localStorage.getItem(this.OLD_KEY + '.' + x); if (v) localStorage.setItem(this.KEY + '.' + x, v); }
-        }
-      }
-      return raw ? JSON.parse(raw) : null;
-    }
+    if (!this.uid) return null;
+    try { const raw = localStorage.getItem(this.key()); return raw ? JSON.parse(raw) : null; }
     catch (e) { this.ok = false; return null; }
   },
   save(data) {
-    try { localStorage.setItem(this.KEY, JSON.stringify(data)); return true; }
+    if (!this.uid) return false;
+    try { localStorage.setItem(this.key(), JSON.stringify(data)); return true; }
     catch (e) { this.ok = false; return false; }
   },
-  getExtra(name) { try { const r = localStorage.getItem(this.KEY + '.' + name); return r ? JSON.parse(r) : null; } catch (e) { return null; } },
-  setExtra(name, val) { try { localStorage.setItem(this.KEY + '.' + name, JSON.stringify(val)); } catch (e) {} },
+  clearUser(uid) { try { localStorage.removeItem(`${this.PREFIX}.u.${uid}`); } catch (e) {} },
+  getAuth() { try { return JSON.parse(localStorage.getItem(this.PREFIX + '.auth') || 'null'); } catch (e) { return null; } },
+  setAuth(a) { try { a ? localStorage.setItem(this.PREFIX + '.auth', JSON.stringify(a)) : localStorage.removeItem(this.PREFIX + '.auth'); } catch (e) {} },
+  loadLegacy() {
+    for (const k of this.LEGACY_KEYS) {
+      try { const raw = localStorage.getItem(k); if (raw) { const d = JSON.parse(raw); if (d && (d.sets || []).length) return { key: k, data: d }; } } catch (e) {}
+    }
+    return null;
+  },
+  retireLegacy() { for (const k of this.LEGACY_KEYS) { try { const v = localStorage.getItem(k); if (v) { localStorage.setItem(k + '.imported', v); localStorage.removeItem(k); } } catch (e) {} } },
   askPersistent() { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {} }
 };
