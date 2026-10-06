@@ -274,6 +274,10 @@ nav.tabs a .badge{position:absolute;margin:-18px 0 0 22px;width:8px;height:8px;b
 }
 @media (min-width:700px){ h1{font-size:46px} .stamp{font-size:50px} }
 </style>
+<script>
+/* Preview only: remove any old service worker and caches on this site so the old app cannot be served instead of this one. */
+try{ if("serviceWorker" in navigator) navigator.serviceWorker.getRegistrations().then(function(r){ r.forEach(function(x){ x.unregister(); }); }).catch(function(){}); if(window.caches) caches.keys().then(function(k){ k.forEach(function(c){ caches.delete(c); }); }).catch(function(){}); }catch(e){}
+</script>
 </head>
 <body>
 <div class="wrap" id="app" aria-live="polite"></div>
